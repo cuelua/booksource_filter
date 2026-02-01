@@ -1,0 +1,101 @@
+name: Create Release Notes
+
+on:
+  push:
+    tags:
+    - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Generate Gitmoji Categorized Release Notes
+      id: notes
+      run: |
+        set -e
+        tag="${GITHUB_REF##*/}"
+        prev_tag=$(git describe --tags --abbrev=0 $tag^ 2>/dev/null || echo "")
+        if [ -n "$prev_tag" ]; then
+          commits=$(git log --pretty=format:"%s" ${prev_tag}..HEAD | tr -d '\r')
+        else
+          commits=$(git log --pretty=format:"%s" HEAD | tr -d '\r')
+        fi
+
+        declare -A regex_sections=(
+          ["✨ 新增"]="^(✨|新增|feat)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["🛠️ 修复"]="^(🛠️|修复|fix)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["📚 文档"]="^(📚|文档|docs)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["🎨 风格"]="^(🎨|风格|style)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["🚀 性能"]="^(🚀|性能|perf)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["⚙️ 配置"]="^(⚙️|配置|config)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["🌏 语言"]="^(🌏|语言|i18n)(\\(.+\\))?([ ]|[:：][ ]?)"
+          ["♻️ 杂项"]="^(♻️|杂项|chore)(\\(.+\\))?([ ]|[:：][ ]?)"
+        )
+
+        categories=(
+          "✨ 新增"
+          "🛠️ 修复"
+          "📚 文档"
+          "🎨 风格"
+          "🚀 性能"
+          "⚙️ 配置"
+          "🌏 语言"
+          "♻️ 杂项"
+        )
+
+        declare -A sections
+        for key in "${categories[@]}"; do
+          sections[$key]=""
+        done
+
+        body=""
+
+        while IFS= read -r msg; do
+          matched=false
+          for category in "${!regex_sections[@]}"; do
+            pattern=${regex_sections[$category]}
+            if echo "$msg" | grep -Eq "$pattern"; then
+              clean_msg=$(echo "$msg" | sed -E "s/$pattern//I")
+              sections["$category"]+="- $clean_msg\n"
+              matched=true
+              break
+            fi
+          done
+
+          if [ "$matched" = false ]; then
+            body+="### $msg\n\n"
+          fi
+        done <<< "$commits"
+
+        for key in "${categories[@]}"; do
+          if [[ -n "${sections[$key]}" ]]; then
+            body+="## $key\n${sections[$key]}\n"
+          fi
+        done
+
+        if [ -z "$body" ]; then
+          body="### 本次更新未匹配到分类的提交记录。\n\n"
+        fi
+
+        {
+          echo "result<<EOF"
+          echo -e "$body"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: "${{ github.ref_name }}"
+        body: ${{ steps.notes.outputs.result }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

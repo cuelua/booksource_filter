@@ -1,0 +1,78 @@
+name: Windows Build & Release
+
+on:
+  push:
+    tags:
+    - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version-file: "pyproject.toml"
+
+    - name: Enable caching
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Install the project
+      run: uv sync --locked --all-extras --dev
+
+    - name: Update TLD snapshot
+      run: |
+        Invoke-WebRequest -Uri "https://publicsuffix.org/list/public_suffix_list.dat" -OutFile "src/resources/.tld_set_snapshot"
+
+    - name: Build exe with PyInstaller spec
+      run: uv run pyinstaller app.spec
+
+    - name: Get exe name from app.spec
+      run: |
+        $spec = Get-Content "app.spec" -Encoding UTF8
+        foreach ($line in $spec) {
+          if ($line -match 'name\s*=\s*["'']?([^,"'']+)') {
+            $exe_name = $matches[1].Trim("'""")
+            echo "exe_name=$exe_name" >> $env:GITHUB_ENV
+            break
+          }
+        }
+
+    - name: Get project name from pyproject.toml
+      run: |
+        $toml = Get-Content "pyproject.toml" -Encoding UTF8
+        foreach ($line in $toml) {
+          if ($line -match '^\s*name\s*=\s*["'']([^"'']+)["'']') {
+            $project_name = $matches[1]
+            echo "project_name=$project_name" >> $env:GITHUB_ENV
+            break
+          }
+        }
+
+    - name: Compress exe into zip
+      run: |
+        $zipName = "${{ env.project_name }}_${{ github.ref_name }}_windows.zip"
+        Compress-Archive -Path dist/${{ env.exe_name }}.exe -DestinationPath dist/$zipName
+        echo "zip_name=$zipName" >> $env:GITHUB_ENV
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.zip_name }}
+        path: dist/${{ env.zip_name }}
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/${{ env.zip_name }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

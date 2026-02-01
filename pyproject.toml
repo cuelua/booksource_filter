@@ -1,0 +1,15 @@
+[project]
+name = "booksource-filter"
+version = "0.1.0"
+description = "书源管理工具"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "httpx>=0.28.1",
+    "msgspec>=0.20.0",
+    "orjson>=3.11.5",
+    "pyinstaller>=6.18.0",
+    "selectolax>=0.4.6",
+    "tldextract>=5.3.1",
+    "tqdm>=4.67.1",
+]
