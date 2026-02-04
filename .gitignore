@@ -14,3 +14,4 @@ wheels/
 配置.json
 
 .vscode/
+src/app/*.bat

@@ -97,5 +97,6 @@ class BookSource(BaseModel, kw_only=True, dict=True):
     respond_time: int | str | None = None  # 响应时间（测速结果）
 
     def __post_init__(self):
-        # 初始化时附加 domain 字段（域名）
+        # 初始化时附加字段
         self.domain: str = ""
+        self.primary_category: str = ""

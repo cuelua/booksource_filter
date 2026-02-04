@@ -39,10 +39,12 @@
 - 首次运行会创建默认配置文件
 - 测试网页
   - 根据 `bookSourceUrl`进行访问测试
-  - 若页面含屏蔽词会被排除
+  - 可成功访问的会根据黑白名单进行筛选
   - 测试完会根据响应时间排序
 - 重新分组
   - 根据 `bookSourceGroup`中的关键字重新分组
+  - 可选择是否根据 `bookSourceName`和 `bookSourceComment`中的关键字进行分组
 - 去重处理
   - 按域名去重
-- 保存时会根据 `bookSourceType`的类别分文件保存
+- 保存时会根据 `bookSourceType`的类别分组保存
+- 可选择是否按照 `分类标签规则`的顺序根据 `bookSourceGroup`进行分组保存

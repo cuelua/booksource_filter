@@ -1,7 +1,7 @@
 import time
-from file_manager import clear_output, save_sources, base_dir, load_sources
 from classifier import classify_and_sort_sources
 from url_checker import check_urls_parallel, deduplicate_by_domain
+from file_manager import base_dir, load_sources, save_sources_grouped
 
 
 # 上下文：保存整个流程的数据
@@ -103,13 +103,5 @@ class SaveStep(Step):
     name = "保存结果"
 
     def run(self, context, config):
-        # 有效书源按分类保存
-        for src in context.valid:
-            context.grouped[src.book_source_type]["items"].append(src)
-        clear_output(config)  # 清空旧目录
-        save_sources("其他", context.invalid, config)
-        save_sources("无效", context.unreachable, config)
-        save_sources("重复", context.duplicates, config)
-        for _, group in context.grouped.items():
-            save_sources(group["name"], group["items"], config)
+        save_sources_grouped(context, config)
         return f"全部处理完成，输出目录：{base_dir() / '导出'}"

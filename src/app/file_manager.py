@@ -49,7 +49,7 @@ def load_sources():
         # 如果没有书源文件 → 提示用户添加
         print("请将书源添加至导入中，按任意键继续")
         msvcrt.getch()
-    for file_path in Path(input_path).glob("*.json"):
+    for file_path in input_path.glob("*.json"):
         try:
             # 解码为 BookSource 列表
             data = msgspec.json.decode(file_path.read_bytes(), type=list[BookSource])
@@ -63,56 +63,104 @@ def load_sources():
 
 # 清空导出目录
 def clear_output(config):
-    output_path = Path(base_dir() / "导出")
+    output_path = base_dir() / "导出"
     if config.clear_output and output_path.exists():
         for item in output_path.iterdir():
-            if item.is_file():
-                item.unlink()
-            elif item.is_dir():
-                shutil.rmtree(item)
+            shutil.rmtree(item) if item.is_dir() else item.unlink()
+
+    # 内部函数：写入文件
+
+
+def dump_json(file_path, sources, config):
+    try:
+        # 格式化输出（带缩进）
+        file_path.write_bytes(
+            orjson.dumps(
+                msgspec.to_builtins(sources),
+                option=orjson.OPT_INDENT_2 if config.use_format else 0,
+            )
+        )
+    except Exception as e:
+        print(f"文件写入失败 {file_path}: {e}")
 
 
 # 保存书源到导出目录
-def save_sources(name, sources, config):
+def save_sources(file_path, sources, config):
     if not sources:
         return
-    output_path = Path(base_dir() / "导出")
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # 内部函数：写入文件
-    def dump(file_path, sources):
-        try:
-            if config.use_format:
-                # 格式化输出（带缩进）
-                file_path.write_bytes(
-                    orjson.dumps(
-                        msgspec.to_builtins(sources), option=orjson.OPT_INDENT_2
-                    )
-                )
-            else:
-                # 紧凑输出
-                file_path.write_bytes(msgspec.json.encode(sources))
-        except Exception as e:
-            print(f"文件写入失败 {file_path}: {e}")
 
     total = len(sources)
     items_per_file = 1000  # 每个文件最多保存 1000 条
 
-    # ---- 复杂逻辑：切片保存 ----
+    # ---- 切片保存 ----
     # 如果总数不大 → 保存到单个文件
     if not config.use_slice or total <= items_per_file * 1.5:
-        file_path = output_path / f"{name}.json"
-        dump(file_path, sources)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_json(file_path.with_suffix(".json"), sources, config)
         return
 
     # 如果总数很大 → 按切片保存
-    slice_dir = output_path / name
-    slice_dir.mkdir(parents=True, exist_ok=True)
-    for part, i in enumerate(range(0, total, items_per_file), start=1):
+    file_path.mkdir(parents=True, exist_ok=True)
+    for part, i in enumerate(range(0, total, items_per_file), 1):
         # 最后一片如果不足一半 → 合并到最后一个文件
         if total - i <= items_per_file * 0.5:
             chunk = sources[i:]
         else:
             chunk = sources[i : i + items_per_file]
-        file_path = slice_dir / f"{name}_{part:02d}.json"
-        dump(file_path, chunk)
+        dump_json(file_path / f"{file_path.stem}_{part:02d}.json", chunk, config)
+
+
+def group_sources(sources, config):
+    # 初始化分组容器
+    groups = {
+        tid: {
+            "type": g,
+            "categories": {
+                **{category: [] for category in config.classify.categories},
+                "其他": [],
+            },
+        }
+        for tid, g in config.classify.reverse_type_map.items()
+    }
+
+    for src in sources:
+        categories = src.primary_category or "其他"
+        groups[src.book_source_type]["categories"][categories].append(src)
+    return groups
+
+
+def save_sources_grouped(context, config):
+    output_path = base_dir() / "导出"
+
+    clear_output(config)
+    save_sources(output_path / "空链", context.invalid, config)
+    save_sources(output_path / "超时", context.unreachable, config)
+    save_sources(output_path / "重复", context.duplicates, config)
+
+    groups = group_sources(context.valid, config)
+    if config.save_by_category and config.save_by_type:
+        # 类型文件夹 + 标签文件
+        for group in groups.values():
+            for category, items in group["categories"].items():
+                save_sources(output_path / group["type"] / category, items, config)
+
+    elif config.save_by_category:
+        # 只按标签保存（跨类型）
+        merged = {category: [] for category in config.classify.categories}
+        merged["其他"] = []
+        for group in groups.values():
+            for category, items in group["categories"].items():
+                merged[category].extend(items)
+        for category, items in merged.items():
+            save_sources(output_path / category, items, config)
+    elif config.save_by_type:
+        # 只按类型保存
+        for group in groups.values():
+            save_sources(
+                output_path / group["type"],
+                sum(group["categories"].values(), []),
+                config,
+            )
+    else:
+        # 两个都关掉 → 保存全部合格书源
+        save_sources(output_path / "合格", context.valid, config)

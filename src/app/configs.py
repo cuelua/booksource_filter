@@ -36,27 +36,17 @@ class ClassificationConfig(msgspec.Struct):
     def reverse_type_map(self) -> dict[int, str]:
         return {v: k for k, v in self.type_map.items()}
 
-    # 分类开关：控制是否从name和comment中提取标签
-    use_name_for_classify: bool = msgspec.field(name="从名称中匹配标签", default=False)
-    use_comment_for_classify: bool = msgspec.field(
-        name="从注释中匹配标签", default=False
-    )
-    # 控制是否为小说添加默认标签
-    use_novel_default_label: bool = msgspec.field(
-        name="小说添加类型标签", default=False
-    )
-
     # 标签分类：通过关键词匹配分组
     # fmt:off
     categories: dict[str, list[str]] = msgspec.field(
         name="分类标签规则",
         default_factory=lambda: {
-            "精品": ["精", "优", "满"],
             "成人": [
                 "18", "黄", "肉", "色", "涩", "瑟", "羞", "成人", "嘿嘿", "刘备",
                 "绅士", "淑女", "涩涩", "禁书", "禁漫", "束冠", "不可描述",
                 "h", "po", "nsfw", "🥵", "🔞", "🙈"
             ],
+            "精品": ["精", "优", "满"],
             "男频": ["男频"],
             "女频": ["甜", "女频", "言情", "女生", "轻言"],
             "轻文": ["轻"],
@@ -71,17 +61,46 @@ class ClassificationConfig(msgspec.Struct):
 
 # ---- URL 过滤配置 ----
 class UrlFilterConfig(msgspec.Struct):
-    min_html_length: int = alias("最小HTML长度", 200)  # HTML 长度阈值
-    min_visible_text_length: int = alias("最小可见文本长度", 50)  # 可见文本长度阈值
     # fmt:off
-    keywords: list[str] = msgspec.field(               # 屏蔽词列表
-        name="屏蔽关键词",
+    white_list: list[str] = msgspec.field(
+        name="白名单关键词",
         default_factory=lambda: [
-            "error", "nginx", "banggood", "for sale", "verify code", "make an offer",
-            "server is down", "buy this domain", "cheapest domains", "using the domain",
-            "sorry", "can not be accessed", "彩票", "棋牌", "错误", "抱歉", "转让", "公司",
-            "没有找到站点", "welcome", "无法显示", "无法加载", "域名出售", "正在出售",
-        ],
+            # 小说类
+            "小说", "章节", "目录", "正文", "阅读", "书架", "书单",
+            "作者", "作品", "更新", "连载", "完本", "简介",
+            "玄幻", "武侠", "都市", "言情", "历史", "科幻",
+            # 漫画类
+            "漫画", "连载漫画", "章节列表", "话", "话数", "条漫",
+            "国漫", "日漫", "韩漫", "漫画阅读",
+            # 听书 / 音频类
+            "听书", "有声", "音频", "播放", "收听", "主播",
+            "有声小说", "音频小说",
+            # 文库 / 资料类
+            "文库", "资料", "文档", "教程", "论文", "下载",
+            "电子书", "PDF", "TXT",
+            # 视频类
+            "视频", "剧集", "番剧", "影视", "在线播放", "更新至",
+        ]
+    )
+    # fmt:on
+
+    # fmt:off
+    black_list: list[str] = msgspec.field(
+        name="黑名单关键词",
+        default_factory=lambda: [
+            "for sale", "make an offer", "buy this domain",
+            "cheapest domains", "using the domain",
+            "verify code", "captcha", "cloudflare challenge",
+            "server is down", "nginx error", "bad gateway",
+            "502 bad gateway", "403 forbidden", "404 not found",
+            "域名出售", "正在出售", "出售中",
+            "verify your browser", "checking your browser",
+            "access denied", "security check", "ddos protection",
+            "maintenance", "under maintenance",
+            "suspended", "account suspended",
+            "彩票", "棋牌", "色情", "博彩", "错误", "抱歉", "sorry", "welcome",
+            "无法显示", "无法加载", "没有找到站点", "转让" 
+        ]
     )
     # fmt:on
 
@@ -94,6 +113,16 @@ class AppConfig(msgspec.Struct):
     auto_close: bool = alias("程序自动关闭", False)  # 程序结束是否自动关闭
     clear_output: bool = alias("导出前清空目录", True)  # 导出前是否清空目录
     deduplicate_by_domain: bool = alias("按域名去重", True)  # 是否按域名去重
+    # 是否按照类型或标签保存
+    save_by_type: bool = msgspec.field(name="按类型分别保存", default=True)
+    save_by_category: bool = msgspec.field(name="按标签分别保存", default=True)
+    # 是否从name和comment中提取标签
+    name_for_classify: bool = msgspec.field(name="从名称中匹配标签", default=False)
+    comment_for_classify: bool = msgspec.field(name="从注释中匹配标签", default=False)
+    # 控制是否为默认类型添加标签
+    use_novel_default_label: bool = msgspec.field(
+        name="默认类型添加标签", default=False
+    )
 
     # 子配置对象
     http: HttpConfig = msgspec.field(name="连接测试", default_factory=HttpConfig)
