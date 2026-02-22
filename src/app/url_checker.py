@@ -4,53 +4,40 @@ import httpx
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
-# 尝试多种编码解码网页内容，避免乱码
-def try_decode(raw):
-    for enc in ("utf-8", "gbk", "gb2312", "big5", "shift_jis", "latin1"):
-        try:
-            return raw.decode(enc, errors="ignore")
-        except Exception:
-            continue
-    return raw.decode("utf-8", errors="ignore")
-
-
 base64_pattern = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
+title_pattern = re.compile(r"<title>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+encoding_pattern = re.compile(
+    r'<meta[^>]*?(?:charset|http-equiv.*?charset)=["\']?([^"\'\s;>]+)["\']?',
+    re.IGNORECASE,
+)
 
 
-def validate_response(response, config):
+def validate_response(response, text, config):
     if response.status_code != 200:
         return False
-
     # JSON 响应
-    if "application/json" in response.headers.get("Content-Type", "").lower():
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "application/json" in content_type or "text/json" in content_type:
         try:
             data = response.json()
-        except Exception:
+            return isinstance(data, (dict, list)) and bool(data)
+        except (ValueError, TypeError):
             return False
-        return isinstance(data, dict) and bool(data)
-
-    # HTML 响应
-    raw = response.content[:100_000]
-    text = try_decode(raw).lower()
-
-    # 1. 必须包含 <html>
+    # 1. 必须包含 <html> 标签
     if "<html" not in text:
         return False
-
-    # 3. 白名单过滤
-    if any(k in text for k in config.url_filter.white_list):
+    # 4. base64 垃圾内容过滤 - 限制匹配次数以提高性能
+    base64_count = 0
+    for match in base64_pattern.finditer(text):
+        base64_count += 1
+        if base64_count > 200:
+            return False
+    # 2. 白名单过滤 - 转换为集合提高查找效率
+    if any(key in text for key in config.url_filter.white_list):
         return True
-
-    # 4. 黑名单过滤
-    if any(k in text for k in config.url_filter.black_list):
+    # 3. 黑名单过滤 - 转换为集合提高查找效率
+    if any(key in text for key in config.url_filter.black_list):
         return False
-
-    # 5. base64 垃圾内容过滤
-    matches = base64_pattern.findall(text)
-    if len(matches) > 200:
-        return False
-
     return True
 
 
@@ -67,9 +54,20 @@ def check_source_url(source, config):
             timeout=httpx.Timeout(config.http.timeout, read=config.http.timeout_read),
         ) as client:
             response = client.get(source.book_source_url)
+            # 计算响应时间
             delay_ms = int((time.perf_counter() - start_time) * 1000)
             source.respond_time = delay_ms
-            return source, validate_response(response, config)
+
+            # 读取并解码内容，限制大小以提高性能
+            content = response.content[:100_000]  # 限制为100KB
+            encoding = "utf-8"  # 默认编码
+            html_snippet = content[:2000].decode(encoding, errors="replace")
+            if meta_match := encoding_pattern.search(html_snippet):
+                encoding = meta_match.group(1).strip()
+            text = content.decode(encoding, errors="replace").lower()
+            if title_match := title_pattern.search(text):
+                source.book_source_name = title_match.group(1).strip()
+            return source, validate_response(response, text, config)
     except Exception:
         return source, False
 
@@ -79,29 +77,55 @@ def check_urls_parallel(sources, config):
     reachable, unreachable = [], []
     with tqdm(total=len(sources)) as progress_bar:
         with ThreadPoolExecutor(config.http.max_workers) as executor:
-            futures = {
+            future_to_source = {
                 executor.submit(check_source_url, source, config): source
                 for source in sources
             }
-            for future in as_completed(futures):
+            # 处理完成的任务
+            for future in as_completed(future_to_source):
                 source, valid = future.result()
-                progress_bar.update(1)
                 if valid:
                     reachable.append(source)
                 else:
                     unreachable.append(source)
+                progress_bar.update(1)
+
+    # 排序 - 优先按名称排序，名称为空时按URL排序
+    def sort_key(item):
+        return (item.book_source_name.lower(), item.respond_time)
+
+    reachable.sort(key=sort_key)
+    unreachable.sort(key=sort_key)
     return reachable, unreachable
 
 
 # 域名去重：保留最快响应的书源
-def deduplicate_by_domain(sources):
-    sorted_sources = sorted(sources, key=lambda _: _.respond_time or float("inf"))
+def deduplicate_by_domain(sources, config):
     seen = {}
     unique, duplicates = [], []
-    for source in sorted_sources:
+    # 按响应时间排序（可选）
+    if config.sort_by_respond_time:
+        # 使用key函数避免多次访问属性
+        sources = sorted(sources, key=lambda _: _.respond_time)
+    # 使用字典映射来优化查找和替换
+    source_index_map = {}
+    for source in sources:
+        domain = source.domain
         if source.domain not in seen:
-            seen[source.domain] = source
+            # 新域名，添加到唯一列表
+            seen[domain] = source
             unique.append(source)
+            source_index_map[domain] = len(unique) - 1
         else:
-            duplicates.append(source)
+            # 相同域名，比较响应时间
+            existing_source = seen[domain]
+            existing_index = source_index_map[domain]
+            if source.respond_time < existing_source.respond_time:
+                # 新的书源响应更快，替换旧的
+                unique[existing_index] = source
+                seen[domain] = source
+                duplicates.append(existing_source)
+            else:
+                # 旧的书源响应更快，保留旧的
+                duplicates.append(source)
     return unique, duplicates

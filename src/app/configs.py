@@ -113,6 +113,7 @@ class AppConfig(msgspec.Struct):
     auto_close: bool = alias("程序自动关闭", False)  # 程序结束是否自动关闭
     clear_output: bool = alias("导出前清空目录", True)  # 导出前是否清空目录
     deduplicate_by_domain: bool = alias("按域名去重", True)  # 是否按域名去重
+    sort_by_respond_time: bool = alias("按响应速度排序", True)  # 是否按响应速度排序
     # 是否按照类型或标签保存
     save_by_type: bool = msgspec.field(name="按类型分别保存", default=True)
     save_by_category: bool = msgspec.field(name="按标签分别保存", default=True)

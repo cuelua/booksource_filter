@@ -93,7 +93,7 @@ class DedupeStep(Step):
     requires = ["deduplicate_by_domain"]
 
     def run(self, context, config):
-        unique, duplicates = deduplicate_by_domain(context.valid)
+        unique, duplicates = deduplicate_by_domain(context.valid, config)
         context.valid, context.duplicates = unique, duplicates
         return f"域名去重完成，保留：{len(unique)}，重复：{len(duplicates)}"
 

@@ -15,3 +15,4 @@ wheels/
 
 .vscode/
 src/app/*.bat
+.codebuddy/

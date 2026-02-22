@@ -50,7 +50,7 @@ def classify_source_group(source, category_patterns, config):
         source.primary_category = matched[0]
 
     type_label = config.classify.reverse_type_map.get(source.book_source_type)
-    if config.use_novel_default_label or source.book_source_type != 0:
+    if config.use_novel_default_label or source.book_source_type != 0 or matched == []:
         matched.insert(0, type_label)
 
     source.book_source_group = ",".join(matched)
@@ -87,7 +87,7 @@ def classify_and_sort_sources(sources, config):
     ip_pattern = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
     valid_sources, invalid_sources = [], []
     for source in sources:
-        source.book_source_name = clean_name(source.book_source_name)
+        # source.book_source_name = clean_name(source.book_source_name)
         source = classify_source_group(source, category_patterns, config)
         source = normalize_source_url(source, url_pattern, ip_pattern)
         # 有域名 → 有效，否则无效
@@ -95,4 +95,10 @@ def classify_and_sort_sources(sources, config):
             valid_sources.append(source)
         else:
             invalid_sources.append(source)
+
+    def sort_key(item):
+        return (item.book_source_name.lower(), item.respond_time)
+
+    valid_sources.sort(key=sort_key)
+    invalid_sources.sort(key=sort_key)
     return grouped, valid_sources, invalid_sources
